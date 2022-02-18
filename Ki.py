@@ -15,6 +15,7 @@ import torch.optim as optim
 import os
 import random
 import copy
+import math
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -82,23 +83,39 @@ epoch = 0
 
 class Batch():
     def __init__(self):
-        self.mem = []
+        self.mem = {
+            "state":[],
+            "next_state":[],
+            "move":[],
+            "player":[],
+            "reward":[]
+            }
         self.batch_idx = 0
-        self.BATCHSIZE = 50
+        self.BATCHSIZE = 1000
 
     def addToMem(self,state,next_state,move,player,reward):
-        self.mem.append([state,next_state,move,player,reward])
+        self.mem["state"].append(state)
+        self.mem["next_state"].append(next_state)
+        self.mem["move"].append(move)
+        self.mem["player"].append(player)
+        self.mem["reward"].append(reward)
         self.batch_idx = self.batch_idx + 1
 	
-    def updateNextState(self,state):
-        self.mem[self.batch_idx-1][1] = state
+    def updateNextState(self,nextstate):
+        self.mem["next_state"][self.batch_idx-1] = nextstate
 	
     def editEndingReward(self,reward,change_for_second_player):
-        self.mem[self.batch_idx-1][4] = copy.deepcopy(reward)
-        self.mem[self.batch_idx-2][4] = copy.deepcopy(reward) * copy.deepcopy(change_for_second_player)
+        self.mem["reward"][self.batch_idx-1] = copy.deepcopy(reward)
+        self.mem["reward"][self.batch_idx-2] = copy.deepcopy(reward) * copy.deepcopy(change_for_second_player)
     
     def reset_batch(self):
-        self.mem = []
+        self.mem = {
+            "state":[],
+            "next_state":[],
+            "move":[],
+            "player":[],
+            "reward":[]
+            }
         self.batch_idx = 0
     
     
@@ -108,6 +125,10 @@ class Trainer():
         self.DRAWREWARD = 0.5
         self.INVALID_MOVE_REWARD = -100
         self.GAMMA = 0.8
+        self.EPS_START = 0.98
+        self.EPS_END = 0.02
+        self.EPS_STEPS = 12500
+        self.moves = 0
         self.memory = Batch()
         self.model = Ki().initialize_model()
         self.writer = SummaryWriter('models/tensorboard')
@@ -154,7 +175,7 @@ class Trainer():
             old_game = copy.deepcopy(game.field)
             input_game = copy.deepcopy(game.field)
             if offset == 1:
-                move = self.model.model_move(self.model.convert_game(input_game,player))
+                move = self.model.model_move(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(input_game,player)))))
             if offset == 0:
                 move = self.model.random_move(free_slots)
             game = game.make_move(game,move,player)
@@ -191,7 +212,7 @@ class Trainer():
         while active == True:
             old_game = copy.deepcopy(game.field)
             input_game = copy.deepcopy(game.field)
-            move = self.model.model_move(self.model.convert_game(input_game,player))
+            move = self.model.model_move(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(input_game,player)))))
             game = game.make_move(game,move,player)
     		# won() gibt das Zeichen des Spielers zurück, der gewonnen hat
             reward = 0
@@ -215,24 +236,57 @@ class Trainer():
                 self.memory.updateNextState(copy.deepcopy(game.field))
             #print(game)
             player = game.switch_player(player)
-        
-    def train_step(self,sample,iteration,mode):
-        state = sample[0]
-        next_state = sample[1]
-        move = sample[2]
-        player = sample[3]
-        reward = sample[4]
-        state = self.model.convert_game(state,player)
-        if next_state is None and reward == 0:
-            target = model(state)
-        elif next_state is None:
-            target = self.model(state)
-            target[move] = target[move] + self.GAMMA * reward
-        else:
-            next_state = self.model.convert_game(next_state,player)
-            target = self.model(state)
-            target[move] =  -(self.GAMMA * max(self.model(next_state).tolist()))
-        prediction = self.model(state)
+            
+    def epsilon_training(self):
+        game = Game()
+        player = PLAYER1
+        active = True
+        while active == True:
+            old_game = copy.deepcopy(game.field)
+            input_game = copy.deepcopy(game.field)
+            threshold = self.EPS_END + (self.EPS_START-self.EPS_END) * math.exp(-1. * self.moves / self.EPS_STEPS)
+            self.moves = self.moves + 1
+            if random.random() > threshold:
+                move = self.model.model_move(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(input_game,player)))))
+            else:
+                move = self.model.random_move(self.model.find_free_cols(self.model.convert_game(input_game,player)))
+            game = game.make_move(game,move,player)
+    		# won() gibt das Zeichen des Spielers zurück, der gewonnen hat
+            reward = 0
+            self.memory.addToMem(old_game,None,move,player,reward)
+            if game.won(game) != 0:
+                reward = self.WINNINGREWARD
+                self.memory.editEndingReward(reward,-1)
+                active = False
+                print("eW")
+            elif game.draw(game) == True:
+                reward = self.DRAWREWARD
+                self.memory.editEndingReward(reward,1)
+                active = False
+                print("eD")
+            elif game.field == input_game:
+                reward = self.INVALID_MOVE_REWARD
+                self.memory.editEndingReward(reward, 0)
+                active = False
+                print("eI")
+            else:
+                self.memory.updateNextState(copy.deepcopy(game.field))
+            #print(game)
+            player = game.switch_player(player)
+
+
+	
+    def train_step(self,iteration,mode):
+        new_batch = []
+        for idx in range(self.memory.batch_idx):
+            new_batch.append(self.model.flatten_game(self.model.convert_game(self.memory.mem["state"][idx],self.memory.mem["player"][idx])))
+        prediction = self.model(Variable(torch.Tensor(new_batch)))
+        target = self.model(Variable(torch.Tensor(new_batch)))
+        for idx in range(self.memory.batch_idx):
+            if self.memory.mem["next_state"][idx] is not None:
+                target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * max(self.model(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(self.memory.mem["next_state"][idx],self.memory.mem["player"][idx]))))).tolist()))
+            else:
+                target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * self.memory.mem["reward"][idx])
 	
         loss = self.model.loss_func(prediction,target)
         print(loss)
@@ -254,9 +308,10 @@ class Trainer():
                     self.ki_only_game()
                 elif mode == 'h':
                     self.hybrid()
-            for samples in range(self.memory.batch_idx):
-                self.train_step(self.memory.mem[self.memory.batch_idx-samples-1],self.plotting_step,mode)
-                self.plotting_step = self.plotting_step + 1
+                elif mode == 'e':
+                    self.epsilon_training()
+            self.train_step(self.plotting_step,mode)
+            self.plotting_step = self.plotting_step + 1
             self.memory.reset_batch()
             epoch = epoch + 1
             self.model.save_model()
@@ -279,7 +334,7 @@ class Ki(nn.Module):
         )
         
         self.epoch = 0
-        self.LR = 0.8
+        self.LR = 0.1
         self.loss_func = nn.MSELoss()
         self.optimizer = torch.optim.AdamW(self.parameters(), lr = self.LR)
         self.PATH = 'models/model.pth'
@@ -314,19 +369,39 @@ class Ki(nn.Module):
             self = Ki()
         return self
     
+    def flatten_game(self,game):
+        flattened_game = []
+        for col in range(COLUMS):
+            for row in range(ROWS):
+                if game[col][row] == 1:
+                    flattened_game.append(-1)
+                elif game[col][row] == -1:
+                    flattened_game.append(1)
+                else:
+                    flattened_game.append(0)
+        return flattened_game
+    
     def convert_game(self,game,player):
     	#return game with empty spaces as 0, the Ki's stones as 1 and the enemys stones as -1
         if player == PLAYER2:
             for col in range(COLUMS):
                 for row in range(ROWS):
                     if game[col][row] == 1:
-                        game[col][row] = -1
+                        game[col][row] == -1
                     elif game[col][row] == -1:
-                        game[col][row] = 1
-        game = torch.Tensor(game)
-        game = torch.flatten(game)
+                        game[col][row] == 1
         return game
-	
+    
+    def find_free_cols(self,game):
+        free_slots = []
+        for col in range(COLUMS):
+            free_slots.append(0)
+            for row in range(ROWS):
+                if game[col][row] == 0:
+                    free_slots[col] = 1
+                    break
+        return free_slots
+            
 	
     def random_move(self,free_slots):
         free = copy.deepcopy(free_slots)
@@ -363,11 +438,12 @@ class Ki(nn.Module):
         
 training = Trainer()
 for i in range(10):
-    training.train(20,'r')
-    training.train(30,'h')
-    training.train(40,'k')
+#    training.train(20,'r')
+#    training.train(30,'h')
+#    training.train(40,'k')
+    training.train(5,'e')
     training.model.save_model()
     training.model.LR = training.model.LR / 2
 
-training.writer.add_graph(training.model, input_to_model=training.model.convert_game(Game().field,PLAYER1), verbose=True, use_strict_trace=True)
+training.writer.add_graph(training.model, input_to_model=Variable(torch.Tensor(training.model.flatten_game(training.model.convert_game(Game().field,PLAYER1)))), verbose=True, use_strict_trace=True)
 training.writer.close()
