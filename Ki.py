@@ -175,7 +175,9 @@ class Trainer():
             old_game = copy.deepcopy(game.field)
             input_game = copy.deepcopy(game.field)
             if offset == 1:
-                move = self.model.model_move(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(input_game,player)))))
+                flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
+                free_colums = flattened_game.pop(0)
+                move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),free_colums)
             if offset == 0:
                 move = self.model.random_move(free_slots)
             game = game.make_move(game,move,player)
@@ -212,7 +214,9 @@ class Trainer():
         while active == True:
             old_game = copy.deepcopy(game.field)
             input_game = copy.deepcopy(game.field)
-            move = self.model.model_move(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(input_game,player)))))
+            flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
+            free_colums = flattened_game.pop(0)
+            move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),free_colums)
             game = game.make_move(game,move,player)
     		# won() gibt das Zeichen des Spielers zurück, der gewonnen hat
             reward = 0
@@ -247,7 +251,9 @@ class Trainer():
             threshold = self.EPS_END + (self.EPS_START-self.EPS_END) * math.exp(-1. * self.moves / self.EPS_STEPS)
             self.moves = self.moves + 1
             if random.random() > threshold:
-                move = self.model.model_move(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(input_game,player)))))
+                flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
+                free_colums = flattened_game.pop(0)
+                move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),free_colums)
             else:
                 move = self.model.random_move(self.model.find_free_cols(self.model.convert_game(input_game,player)))
             game = game.make_move(game,move,player)
@@ -279,12 +285,19 @@ class Trainer():
     def train_step(self,iteration,mode):
         new_batch = []
         for idx in range(self.memory.batch_idx):
-            new_batch.append(self.model.flatten_game(self.model.convert_game(self.memory.mem["state"][idx],self.memory.mem["player"][idx])))
+            flattened_game = self.model.flatten_game(self.model.convert_game(self.memory.mem["state"][idx],self.memory.mem["player"][idx]))
+            free_colums = flattened_game.pop(0)
+            new_batch.append(copy.deepcopy(flattened_game))
         prediction = self.model(Variable(torch.Tensor(new_batch)))
         target = self.model(Variable(torch.Tensor(new_batch)))
         for idx in range(self.memory.batch_idx):
             if self.memory.mem["next_state"][idx] is not None:
-                target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * max(self.model(Variable(torch.Tensor(self.model.flatten_game(self.model.convert_game(self.memory.mem["next_state"][idx],self.memory.mem["player"][idx]))))).tolist()))
+                flattened_game = self.model.flatten_game(self.model.convert_next_state(self.memory.mem["next_state"][idx],self.memory.mem["player"][idx]))
+                free_cols = flattened_game.pop(0)
+                for(idx in range(len(free_cols))):
+                    # give value that probability of move is 0
+                    move[int(free_cols[idx])] = 0
+                target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * max(self.model(Variable(torch.Tensor(copy.deepcopy(flattened_game)))).tolist()))
             else:
                 target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * self.memory.mem["reward"][idx])
 	
@@ -371,14 +384,18 @@ class Ki(nn.Module):
     
     def flatten_game(self,game):
         flattened_game = []
+        free = ""
         for col in range(COLUMS):
             for row in range(ROWS):
-                if game[col][row] == 1:
-                    flattened_game.append(-1)
-                elif game[col][row] == -1:
-                    flattened_game.append(1)
+                if game[col][row] == PLAYER1:
+                    flattened_game.append(PLAYER1)
+                elif game[col][row] == PLAYER2:
+                    flattened_game.append(PLAYER2)
                 else:
                     flattened_game.append(0)
+                    if(free[len(free)-1] != col):
+                        free = free + char(col)
+        flattened_game.insert(0,free)
         return flattened_game
     
     def convert_game(self,game,player):
@@ -386,11 +403,22 @@ class Ki(nn.Module):
         if player == PLAYER2:
             for col in range(COLUMS):
                 for row in range(ROWS):
-                    if game[col][row] == 1:
-                        game[col][row] == -1
-                    elif game[col][row] == -1:
-                        game[col][row] == 1
+                    if game[col][row] == PLAYER1:
+                        game[col][row] == PLAYER2
+                    elif game[col][row] == PLAYER2:
+                        game[col][row] == PLAYER1
         return game
+    
+    def convert_next_state(self,game,player):
+    	#return game with empty spaces as 0, the Ki's stones as 1 and the enemys stones as -1
+        if player == PLAYER1:
+            for col in range(COLUMS):
+                for row in range(ROWS):
+                    if game[col][row] == PLAYER1:
+                        game[col][row] == PLAYER2
+                    elif game[col][row] == PLAYER2:
+                        game[col][row] == PLAYER1
+        return game    
     
     def find_free_cols(self,game):
         free_slots = []
@@ -417,8 +445,11 @@ class Ki(nn.Module):
         move = free[picked_col]
         return move
 
-    def model_move(self,game):
-        move = self(torch.Tensor(game))
+    def model_move(self,game,free_cols):
+        move = self(game)
+        for(idx in range(len(free_cols))):
+            # give value that probability of move is 0
+            move[int(free_cols[idx])] = 0
         move = torch.argmax(move).item()
         return move
 
@@ -445,5 +476,4 @@ for i in range(10):
     training.model.save_model()
     training.model.LR = training.model.LR / 2
 
-training.writer.add_graph(training.model, input_to_model=Variable(torch.Tensor(training.model.flatten_game(training.model.convert_game(Game().field,PLAYER1)))), verbose=True, use_strict_trace=True)
 training.writer.close()
