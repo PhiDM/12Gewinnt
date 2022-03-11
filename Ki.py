@@ -441,8 +441,10 @@ class Ki(nn.Module):
                     flattened_game.append(PLAYER2)
                 else:
                     flattened_game.append(0)
-                    if(free[len(free)-1] != col):
-                        free = free + char(col)
+                    if(free == ""):
+                        free = free + chr(col)
+                    elif(free[len(free)-1] != col):
+                        free = free + chr(col)
         flattened_game.insert(0,free)
         return flattened_game
     
