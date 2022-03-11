@@ -7,24 +7,28 @@ Spieler -1 schreibt "2"
 #board
 ROWS = 4
 COLUMS = 4
+PLAYER1 = 1
+PLAYER2 = -1
+
 
 class Game:
 	def __init__(self):
-		self.player = 1
+		self.player = PLAYER1
 		self.board = self.init_board()
 		
 	def start_game(self):
 		'''
 		runs the game
 		'''
+		
 		self.write()
 		status = True
 		while (status):
-			if self.player == 1:
+			if self.player == PLAYER1:
 				print("Spieler 1 ist dran")
 			else:
 				print("Spieler 2 ist dran")
-			self.make_move(self.get_input())
+			self.make_move(self.get_input(),self.player)
 			self.write()
 			
 			x = self.check_win()
@@ -48,7 +52,12 @@ class Game:
 		return board
 		
 		
-		
+	def switch_player(self):
+		if self.player == PLAYER1:
+			self.player = PLAYER2
+		elif self.player == PLAYER2:
+			self.player = PLAYER1
+			
 		
 	def write(self):
 		'''
@@ -77,7 +86,7 @@ class Game:
 		
 	
 	
-	def make_move(self,col):
+	def make_move(self,col,player):
 		'''
 		setzt einen Stein
 		'''
@@ -87,14 +96,14 @@ class Game:
 			self.board[col][row] = 1
 		else:
 			self.board[col][row] = 2
-		self.player = self.player * (-1)
+		self.switch_player()
 		
 	def get_input(self):
 		'''
 		erfragt, in welche Spalte (column) der Spieler seinen Stein setzen moechte
 		returnt diesen input
 		'''
-		playerInput = input("In welche Spalte moechtest du deinen Stein werfen?")-1
+		playerInput = int(input("In welche Spalte moechtest du deinen Stein werfen?"))-1
 		return playerInput
 		
 	def test_validity(self,col):
@@ -233,5 +242,3 @@ class Game:
 		
 		
 	
-game = Game()
-game.start_game()
