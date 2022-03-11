@@ -127,7 +127,7 @@ class Replay():
             "next_state":[],
             "move":[],
             "player":[],
-            "reward":[]
+            "reward":[],
             "loss":[]
             }
         self.batch_idx = 0
@@ -320,26 +320,35 @@ class Trainer():
 	
     def train_step(self,iteration,mode):
         new_batch = []
+        free_colums = []
+        #adds all currently saved states to the new Batch
         for idx in range(self.memory.batch_idx):
             flattened_game = self.model.flatten_game(self.model.convert_game(self.memory.mem["state"][idx],self.memory.mem["player"][idx]))
-            free_colums = flattened_game.pop(0)
+            free_colums.append(flattened_game.pop(0))
             new_batch.append(copy.deepcopy(flattened_game))
-        prediction = self.model(Variable(torch.Tensor(new_batch)))
-        target = self.model(Variable(torch.Tensor(new_batch)))
+        #updates the states with the biggest loss
+        for idx in range(self.memory.batch_idx):
+            loss_sub = self.model.loss_func(prediction[idx],target[idx])
+            self.replay.addToMem(self.memory.mem["state"],self.memory.mem["next_state"],self.memory.mem["move"],self.memory.mem["player"],self.memory.mem["reward"],loss_sub)
+        #adds the states with the biggest loss to the new Batch
+        for idx in range(self.replay.BATCHSIZE):
+            flattened_game = self.model.flatten_game(self.model.convert_game(self.replay.mem["state"][idx],self.replay.mem["player"][idx]))
+            free_colums.append(flattened_game.pop(0))
+            new_batch.append(copy.deepcopy(flattened_game))
+        #makes the predictions of the current states
         for idx in range(self.memory.batch_idx):
             if self.memory.mem["next_state"][idx] is not None:
                 flattened_game = self.model.flatten_game(self.model.convert_next_state(self.memory.mem["next_state"][idx],self.memory.mem["player"][idx]))
                 free_cols = flattened_game.pop(0)
-                for(idx in range(len(free_cols))):
-                    # give value that probability of move is 0
-                    move[int(free_cols[idx])] = 0
                 target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * max(self.model(Variable(torch.Tensor(copy.deepcopy(flattened_game)))).tolist()))
+                
             else:
                 target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * self.memory.mem["reward"][idx])
-        for(idx in range(self.memory.batch_idx)):
-            loss_sub = self.model.loss_func(prediction[idx],target[idx])
-            self.replay.addToMem(self.memory.mem["state"],self.memory.mem["next_state"],self.memory.mem["move"],self.memory.mem["player"],self.memory.mem["reward"],loss_sub)
-            
+            for idx in range(len(free_cols)):
+                # give value that probability of move is 0
+                move[int(free_cols[idx])] = 0
+        prediction = self.model(Variable(torch.Tensor(new_batch)))
+        target = self.model(Variable(torch.Tensor(new_batch)))
         loss = self.model.loss_func(prediction,target)
         print(loss)
     
@@ -486,7 +495,7 @@ class Ki(nn.Module):
 
     def model_move(self,game,free_cols):
         move = self(game)
-        for(idx in range(len(free_cols))):
+        for idx in range(len(free_cols)):
             # give value that probability of move is 0
             move[int(free_cols[idx])] = 0
         move = torch.argmax(move).item()
