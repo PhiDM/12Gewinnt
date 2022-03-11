@@ -17,6 +17,7 @@ import random
 import copy
 import math
 from torch.utils.tensorboard import SummaryWriter
+import numpy as np
 
 
 
@@ -118,7 +119,41 @@ class Batch():
             }
         self.batch_idx = 0
     
+
+class Replay():
+    def __init__(self):
+        self.mem = {
+            "state":[],
+            "next_state":[],
+            "move":[],
+            "player":[],
+            "reward":[]
+            "loss":[]
+            }
+        self.batch_idx = 0
+        self.BATCHSIZE = 5000
+
+    def addToMem(self,state,next_state,move,player,reward,loss):
+        if(self.batch_idx < self.BATCHSIZE):
+            self.mem["state"].append(state)
+            self.mem["next_state"].append(next_state)
+            self.mem["move"].append(move)
+            self.mem["player"].append(player)
+            self.mem["reward"].append(reward)
+            self.mem["loss"].append(loss)
+            self.batch_idx = self.batch_idx + 1
+        else:
+            index = np.argmin(self.mem["loss"])
+            if(loss > self.mem["loss"][index]):
+                self.mem["state"][index] = state
+                self.mem["next_state"][index] = next_state
+                self.mem["move"][index] = move
+                self.mem["player"][index] = player
+                self.mem["reward"][index] = reward
+                self.mem["loss"][index] = loss
+    	
     
+
 class Trainer():
     def __init__(self):
         self.WINNINGREWARD = 10
@@ -130,6 +165,7 @@ class Trainer():
         self.EPS_STEPS = 12500
         self.moves = 0
         self.memory = Batch()
+        self.replay = Replay()
         self.model = Ki().initialize_model()
         self.writer = SummaryWriter('models/tensorboard')
         self.plotting_step = 0
@@ -300,7 +336,10 @@ class Trainer():
                 target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * max(self.model(Variable(torch.Tensor(copy.deepcopy(flattened_game)))).tolist()))
             else:
                 target[idx][self.memory.mem["move"][idx]] = -(self.GAMMA * self.memory.mem["reward"][idx])
-	
+        for(idx in range(self.memory.batch_idx)):
+            loss_sub = self.model.loss_func(prediction[idx],target[idx])
+            self.replay.addToMem(self.memory.mem["state"],self.memory.mem["next_state"],self.memory.mem["move"],self.memory.mem["player"],self.memory.mem["reward"],loss_sub)
+            
         loss = self.model.loss_func(prediction,target)
         print(loss)
     
