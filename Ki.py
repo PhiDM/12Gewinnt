@@ -92,7 +92,7 @@ class Batch():
             "reward":[]
             }
         self.batch_idx = 0
-        self.BATCHSIZE = 1000
+        self.BATCHSIZE = 100
 
     def addToMem(self,state,next_state,move,player,reward):
         self.mem["state"].append(state)
@@ -131,7 +131,7 @@ class Replay():
             "loss":[]
             }
         self.batch_idx = 0
-        self.BATCHSIZE = 5000
+        self.BATCHSIZE = 500
 
     def addToMem(self,state,next_state,move,player,reward,loss):
         if(self.batch_idx < self.BATCHSIZE):
@@ -213,7 +213,8 @@ class Trainer():
             if offset == 1:
                 flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
                 free_colums = flattened_game.pop(0)
-                move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),free_colums)
+                taken_colums = self.model.taken(free_colums)
+                move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),taken_colums)
             if offset == 0:
                 move = self.model.random_move(free_slots)
             game = game.make_move(game,move,player)
@@ -252,7 +253,8 @@ class Trainer():
             input_game = copy.deepcopy(game.field)
             flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
             free_colums = flattened_game.pop(0)
-            move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),free_colums)
+            taken_colums = self.model.taken(free_colums)
+            move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),taken_colums)
             game = game.make_move(game,move,player)
     		# won() gibt das Zeichen des Spielers zurück, der gewonnen hat
             reward = 0
@@ -289,7 +291,8 @@ class Trainer():
             if random.random() > threshold:
                 flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
                 free_colums = flattened_game.pop(0)
-                move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),free_colums)
+                taken_colums = self.model.taken(free_colums)
+                move = self.model.model_move(Variable(torch.Tensor(copy.deepcopy(flattened_game))),taken_colums)
             else:
                 move = self.model.random_move(self.model.find_free_cols(self.model.convert_game(input_game,player)))
             game = game.make_move(game,move,player)
@@ -320,21 +323,27 @@ class Trainer():
 	
     def train_step(self,iteration,mode):
         new_batch = []
-        free_colums = []
+        taken_colums = []
         #adds all currently saved states to the new Batch
         for idx in range(self.memory.batch_idx):
             flattened_game = self.model.flatten_game(self.model.convert_game(self.memory.mem["state"][idx],self.memory.mem["player"][idx]))
-            free_colums.append(flattened_game.pop(0))
+            taken_colums.append(self.model.taken(flattened_game.pop(0)))
             new_batch.append(copy.deepcopy(flattened_game))
+        if self.replay.batch_idx > 0:            
+            #adds the states with the biggest loss to the new Batch
+            for idx in range(self.replay.BATCHSIZE):
+                flattened_game = self.model.flatten_game(self.model.convert_game(self.replay.mem["state"][idx],self.replay.mem["player"][idx]))
+                taken_colums.append(self.model.taken(flattened_game.pop(0)))
+                new_batch.append(copy.deepcopy(flattened_game))
+
+        prediction = self.model(Variable(torch.Tensor(new_batch)))
+        target = self.model(Variable(torch.Tensor(new_batch)))
+        loss = self.model.loss_func(prediction,target)
+        print(loss)
         #updates the states with the biggest loss
         for idx in range(self.memory.batch_idx):
             loss_sub = self.model.loss_func(prediction[idx],target[idx])
             self.replay.addToMem(self.memory.mem["state"],self.memory.mem["next_state"],self.memory.mem["move"],self.memory.mem["player"],self.memory.mem["reward"],loss_sub)
-        #adds the states with the biggest loss to the new Batch
-        for idx in range(self.replay.BATCHSIZE):
-            flattened_game = self.model.flatten_game(self.model.convert_game(self.replay.mem["state"][idx],self.replay.mem["player"][idx]))
-            free_colums.append(flattened_game.pop(0))
-            new_batch.append(copy.deepcopy(flattened_game))
         #makes the predictions of the current states
         for idx in range(self.memory.batch_idx):
             if self.memory.mem["next_state"][idx] is not None:
@@ -347,10 +356,6 @@ class Trainer():
             for idx in range(len(free_cols)):
                 # give value that probability of move is 0
                 move[int(free_cols[idx])] = 0
-        prediction = self.model(Variable(torch.Tensor(new_batch)))
-        target = self.model(Variable(torch.Tensor(new_batch)))
-        loss = self.model.loss_func(prediction,target)
-        print(loss)
     
         self.writer.add_scalar(mode, loss, iteration)
     
@@ -495,14 +500,23 @@ class Ki(nn.Module):
         move = free[picked_col]
         return move
 
-    def model_move(self,game,free_cols):
+    def model_move(self,game,taken_cols):
         move = self(game)
-        for idx in range(len(free_cols)):
+        for idx in range(len(taken_cols)):
             # give value that probability of move is 0
-            move[int(free_cols[idx])] = 0
+            take = taken_cols[idx]
+            move[int(take)] = 0
         move = torch.argmax(move).item()
         return move
-
+    
+    def taken(self,free_colums):
+        taken_colums = "0123456"
+        for i in range(len(free_colums)):
+            for j in range(len(taken_colums)):
+                if taken_colums[j] == free_colums[i]:
+                    taken_colums.pop(j)
+                    break
+        return taken_colums
 
 
 
