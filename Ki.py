@@ -18,23 +18,19 @@ import copy
 import math
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
-
+import game
 
 
 #exchange
-PLAYER1 = 1
-PLAYER2 = -1
-COLUMS = 7
-ROWS = 6
+PLAYER1 = game.PLAYER1
+PLAYER2 = game.PLAYER2
+COLUMS = game.COLUMNS
+ROWS = game.ROWS
 
 class Game():
     def __init__(self):
-        self.field = []
-        for col in range(COLUMS):
-            single_row = []
-            for row in range(ROWS):
-                single_row.append(0)
-            self.field.append(single_row)
+        self.field = game.init_board
+       
     def make_move(self,game,move,player):
         for idx in range(len(game.field[move])):
             if game.field[move][idx] == 0:
@@ -42,19 +38,19 @@ class Game():
                 return game
         return game
     
-    def switch_player(self,player):
-        if player == PLAYER1:
-            player = PLAYER2
-        elif player == PLAYER2:
-            player = PLAYER1
-        return player
+    #def switch_player(self,player):
+     #   if player == PLAYER1:
+      #      player = PLAYER2
+       # elif player == PLAYER2:
+        #    player = PLAYER1
+        #return player
     
-    def draw(self,game):
-        for col in range(COLUMS):
-            for row in range(ROWS):
-                if game.field[col][row] == 0:
-                    return False
-        return True
+    #def draw(self,game):
+     #   for col in range(COLUMS):
+      #      for row in range(ROWS):
+       #         if game.field[col][row] == 0:
+        #            return False
+        #return True
     
     def won(self,game):
         for row in range(ROWS):
@@ -171,16 +167,16 @@ class Trainer():
         self.plotting_step = 0
         
     def random_game(self):
-        game = Game()
+        spiel = game.Game()
         player = PLAYER1
         free_slots = []
         for col in range(COLUMS):
             free_slots.append(ROWS)
         active = True
         while active == True:
-            old_game = copy.deepcopy(game.field)
+            old_game = copy.deepcopy(spiel.board)
             move = self.model.random_move(free_slots)
-            game = game.make_move(game,move,player)
+            spiel = spiel.make_move(spiel,move,player)
             free_slots[move] = free_slots[move] - 1
     		# won() gibt das Zeichen des Spielers zurück, der gewonnen hat
             reward = 0
@@ -190,26 +186,26 @@ class Trainer():
                 self.memory.editEndingReward(reward,-1)
                 active = False
                 print("rW")
-            elif game.draw(game) == True:
+            elif spiel.draw() == True:
                 reward = self.DRAWREWARD
                 self.memory.editEndingReward(reward,1)
                 active = False
                 print("rD")
             else:
-                self.memory.updateNextState(copy.deepcopy(game.field))
-            player = game.switch_player(player)
+                self.memory.updateNextState(copy.deepcopy(spiel.board))
+                spiel.switch_player()
 
     def hybrid(self):
         offset = random.randint(0,1)
-        game = Game()
+        spiel = game.Game()
         player = PLAYER1
         free_slots = []
         for col in range(COLUMS):
             free_slots.append(ROWS)
         active = True
         while active == True:
-            old_game = copy.deepcopy(game.field)
-            input_game = copy.deepcopy(game.field)
+            old_game = copy.deepcopy(spiel.board)
+            input_game = copy.deepcopy(spiel.board)
             if offset == 1:
                 flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
                 free_colums = flattened_game.pop(0)
@@ -227,30 +223,30 @@ class Trainer():
                 self.memory.editEndingReward(reward,-1)
                 active = False
                 print("hW")
-            elif game.draw(game) == True:
+            elif spiel.draw() == True:
                 reward = self.DRAWREWARD
                 self.memory.editEndingReward(reward,1)
                 active = False
                 print("hD")
-            elif game.field == input_game:
+            elif spiel.board == input_game:
                 reward = self.INVALID_MOVE_REWARD
                 self.memory.editEndingReward(reward, 0)
                 active = False
                 print("hI")
             else:
-                self.memory.updateNextState(copy.deepcopy(game.field))
+                self.memory.updateNextState(copy.deepcopy(spiel.board))
             #print(game)
-            player = game.switch_player(player)
+            spiel.switch_player()
             offset = offset + 1
             offset = offset % 2
 
     def ki_only_game(self):
-        game = Game()
+        spiel = game.Game()
         player = PLAYER1
         active = True
         while active == True:
-            old_game = copy.deepcopy(game.field)
-            input_game = copy.deepcopy(game.field)
+            old_game = copy.deepcopy(spiel.board)
+            input_game = copy.deepcopy(spiel.board)
             flattened_game = self.model.flatten_game(self.model.convert_game(input_game,player))
             free_colums = flattened_game.pop(0)
             taken_colums = self.model.taken(free_colums)
@@ -264,28 +260,28 @@ class Trainer():
                 self.memory.editEndingReward(reward,-1)
                 active = False
                 print("kW")
-            elif game.draw(game) == True:
+            elif spiel.draw() == True:
                 reward = self.DRAWREWARD
                 self.memory.editEndingReward(reward,1)
                 active = False
                 print("kD")
-            elif game.field == input_game:
+            elif spiel.board == input_game:
                 reward = self.INVALID_MOVE_REWARD
                 self.memory.editEndingReward(reward, 0)
                 active = False
                 print("kI")
             else:
-                self.memory.updateNextState(copy.deepcopy(game.field))
+                self.memory.updateNextState(copy.deepcopy(spiel.board))
             #print(game)
-            player = game.switch_player(player)
+            spiel.switch_player()
             
     def epsilon_training(self):
-        game = Game()
+        spiel = game.Game()
         player = PLAYER1
         active = True
         while active == True:
-            old_game = copy.deepcopy(game.field)
-            input_game = copy.deepcopy(game.field)
+            old_game = copy.deepcopy(spiel.board)
+            input_game = copy.deepcopy(spiel.board)
             threshold = self.EPS_END + (self.EPS_START-self.EPS_END) * math.exp(-1. * self.moves / self.EPS_STEPS)
             self.moves = self.moves + 1
             if random.random() > threshold:
@@ -304,20 +300,20 @@ class Trainer():
                 self.memory.editEndingReward(reward,-1)
                 active = False
                 print("eW")
-            elif game.draw(game) == True:
+            elif spiel.draw() == True:
                 reward = self.DRAWREWARD
                 self.memory.editEndingReward(reward,1)
                 active = False
                 print("eD")
-            elif game.field == input_game:
+            elif spiel.board == input_game:
                 reward = self.INVALID_MOVE_REWARD
                 self.memory.editEndingReward(reward, 0)
                 active = False
                 print("eI")
             else:
-                self.memory.updateNextState(copy.deepcopy(game.field))
+                self.memory.updateNextState(copy.deepcopy(spiel.board))
             #print(game)
-            player = game.switch_player(player)
+            spiel.switch_player()
 
 
 	
