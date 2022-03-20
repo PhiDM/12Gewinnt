@@ -4,22 +4,46 @@
 import tkinter as tk
 from tkinter import ttk
 from multiprocessing import Event
-SIZE = 39.5
+SIZE = 40
+spalte = 0
 
 root = tk.Tk()
 root.geometry('280x290')
-#root.resizable(False, False)
+root.resizable(False, False)
 
 def showxy(event):
-    '''
-    show x, y coordinates of mouse click position
-    event.x, event.y relative to ulc of widget (here root) 
-    '''
-    # xy relative to ulc of root
-    #xy = 'root x=%s  y=%s' % (event.x, event.y)
-    # optional xy relative to blue rectangle
-    xy = 'rectangle x=%s  y=%s' % (event.x-x1, event.y-y1)
-    root.title(xy)
+	'''
+	show x, y coordinates of mouse click position
+	event.x, event.y relative to ulc of widget (here root) 
+	'''
+	# xy relative to ulc of root
+	# xy = 'root x=%s  y=%s' % (event.x, event.y)
+	# optional xy relative to blue rectangle
+	xy = 'rectangle x=%s  y=%s' % (event.x-x1, event.y-y1)
+	spaltex = event.x-x1
+	if spaltex <= 40 and spaltex >= 0:
+		spalte = 7
+		
+	if spaltex <= 0 and spaltex >= -40:
+		spalte = 6
+		
+	if spaltex <= -40 and spaltex >= -80:
+		spalte = 5
+		
+	if spaltex <= -80 and spaltex >= -120:
+		spalte = 4
+		
+	if spaltex <= -120 and spaltex >= -160:
+		spalte = 3
+		
+	if spaltex <= -160 and spaltex >= -200:
+		spalte = 2
+		
+	if spaltex <= -200 and spaltex >= -240:
+		spalte = 1
+		
+	print(spalte)
+	
 	
 title = tk.Label(root, text="12 gewinnt!")
 title.pack(ipadx = 40, ipady = 15)
@@ -32,34 +56,18 @@ color = 'lightgrey'
 
 # defines size for each field of the board
 for x in range(7):
-    for y in range(6):
-        x1 = x*SIZE
-        print(x1)
-        y1 = y*SIZE
-        print(y1)
-        x2 = x1 + SIZE
-        print(x2)
-        y2 = y1 + SIZE
-        print(y2)
-        canvas.create_rectangle((x1, y1, x2, y2), fill=color, tag='rectangle')
+	for y in range(6):
+		x1 = x*SIZE
+		print(x1)
+		y1 = y*SIZE
+		print(y1)
+		x2 = x1 + SIZE
+		print(x2)
+		y2 = y1 + SIZE
+		print(y2)
+		canvas.create_rectangle((x1, y1, x2, y2), fill=color, tag='rectangle')	
 		
 		
-def a(event):
-    a=1
-    event.widget.place_forget()
-def b():
-    a=2
-def c():
-    a=3
-def d():
-    a=4
-def e():
-    a=5
-def f():
-    a=6
-def g():
-    a=7
-
 def getorigin(eventorigin):
 	eventorigin.x0 = eventorigin.x
 	eventorigin.y0 = eventorigin.y
@@ -106,7 +114,5 @@ def getorigin(eventorigin):
 
 # bind left mouse click within shape rectangle
 canvas.tag_bind('rectangle', '<Button-1>', showxy)
-
-root.mainloop()
 
 root.mainloop()
